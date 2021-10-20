@@ -15,7 +15,7 @@ async def main():
     try:
         if not sys.version >= "3.5.3":
             raise Exception( "The sample requires python 3.5.3+. Current version of Python: %s" % sys.version )
-        print ( "IoT Hub Client for Python. Nabeel." )
+        print ( "IoT Hub Client for Python. Nabeel Khan." )
 
         # The client object is used to interact with your Azure IoT hub.
         module_client = IoTHubModuleClient.create_from_edge_environment()
