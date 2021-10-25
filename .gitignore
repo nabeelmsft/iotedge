@@ -1,0 +1,8 @@
+﻿################################################################################
+# This .gitignore file was automatically created by Microsoft(R) Visual Studio.
+################################################################################
+
+/ClientApp/ClientApp/local.settings.json
+/ClientApp/ClientApp/bin/Debug/net5.0
+/ClientApp/.vs/ClientApp
+/ClientApp/ClientApp/obj
