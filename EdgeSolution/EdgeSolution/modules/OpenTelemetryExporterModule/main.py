@@ -15,7 +15,7 @@ from azure.core.pipeline.policies import (
     UserAgentPolicy,
 )
 
-from opentelemetry import trace
+from opentelemetry import baggage, trace
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 #from opentelemetry.ext import tags
@@ -38,7 +38,7 @@ async def main():
     try:
         if not sys.version >= "3.5.3":
             raise Exception( "The sample requires python 3.5.3+. Current version of Python: %s" % sys.version )
-        print ( "Version 1.0.0.48 === IoT Hub Client for Python. M Nabeel Khan." )
+        print ( "Version 1.0.0.49 === IoT Hub Client for Python. M Nabeel Khan." )
         print (os.environ["APPLICATIONINSIGHTS_CONNECTION_STRING"])
         print("printing span")
         print(_SPAN_KEY)
@@ -119,18 +119,40 @@ async def main():
             span_processor = BatchSpanProcessor(exporter)
             print("print whats in span_processor")
             print(span_processor)
+            print("print whats in span_processor object: span_processor.__dict__")
             print(span_processor.__dict__)
+
+            print("print whats in span_processor.span_exporter")
+            print(span_processor.span_exporter)
+            print("print whats in span_processor.span_exporter.__dict__")
+            print(span_processor.span_exporter.__dict__)
             trace.get_tracer_provider().add_span_processor(span_processor)
 
-            with tracer.start_as_current_span("parent"):
-                print("Hello, World from IoT edge!")
+            print("print whats in span_processor.span_exporter._instrumentation_key")
+            print(span_processor.span_exporter._instrumentation_key)
+            print("print whats in span_processor.span_exporter.client")
+            print(span_processor.span_exporter.client)            
+            print("print whats in span_processor.span_exporter.client.__dict__")
+            print(span_processor.span_exporter.client.__dict__)
+            trace.get_tracer_provider().add_span_processor(span_processor)
 
+            #with tracer.start_as_current_span("parent"):
+            with tracer.start_span(name="root span") as root_span:
+                ctx = baggage.set_baggage("foo", "bar")   
+                print("Hello, World from IoT edge!")
+                print("printing root span")
+                print(root_span)
+                print("Printing ctx")
+                print(ctx)
+            print(f"Global context baggage:{ baggage.get_all()}")
+            print(f"Span context baggge: {baggage.get_all(context=ctx)}")
             print("Done exporter within the method")
 
             print(method_request)
             print("the data in the message received on input1 was ")
             print(method_request.name)
             print(method_request.payload)
+            print("the whole method request is", method_request.__dict__)
             response_payload = {"Response": "Executed direct method {}".format(method_request.name)}
             response_status = 200
             method_response = MethodResponse.create_from_method_request(method_request, response_status, response_payload)
@@ -145,6 +167,12 @@ async def main():
             #     print("forwarding mesage to output1")
             #     await module_client.send_message_to_output(input_message, "output1")
 
+        async def message_handler(message):
+            print("In message handler")
+            print(message)
+            print("Message object")
+            print(message.__dict__)
+            print(type(message))
         # define behavior for halting the application
         def stdin_listener():
             while True:
@@ -162,6 +190,7 @@ async def main():
         # Schedule task for C2D Listener
         #listeners = asyncio.gather(input1_listener(module_client))
         module_client.on_method_request_received = input1_listener
+        module_client.on_message_received = message_handler
         print ( "The sample is now waiting for messages. ")
 
         # Run the stdin listener in the event loop

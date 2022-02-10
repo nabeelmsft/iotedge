@@ -18,6 +18,7 @@ using System.Reflection;
 using System.Runtime.Versioning;
 using System.Text.RegularExpressions;
 using OpenTelemetry.Context;
+using System.Text;
 
 namespace ClientApp
 {
@@ -54,8 +55,9 @@ namespace ClientApp
                 })
                 //.AddConsoleExporter()
                 .Build();
+
             Activity.DefaultIdFormat = ActivityIdFormat.W3C;
-            using (Activity activity = source.StartActivity("Sample.DistributedTracing"))
+            using (Activity activity = source.StartActivity("Sample.DistributedTracing",ActivityKind.Producer))
             {
                 
                 ActivityContext activityContextToInject = default;
@@ -79,7 +81,10 @@ namespace ClientApp
                 //await DoSomeWork("banana", 8);
                 Console.WriteLine("Example work done");
                 // All the functions below simulate doing some arbitrary work
-                await InvokeMethodUsingHTTPAsync(activity);
+                //await InvokeMethodUsingHTTPAsync(activity);
+                //await SendMessageToEdgeModuleUsingHTTPAsync(activity);
+                await InvokeMethodUsingSDK(activity);
+                //await InvokeDeviceMethodUsingSDK(activity);
 
                 serviceClient.Dispose();
             }
@@ -129,12 +134,15 @@ namespace ClientApp
         }
 
         private static async Task InvokeMethodUsingHTTPAsync(Activity activity)
-        {
+        {            
+            // reference: https://docs.microsoft.com/en-us/azure/iot-hub/iot-hub-devguide-direct-methods
             // Command to generate token
             // az iot hub generate-sas-token -n [iot-hub-name] --du 1003600
             Console.WriteLine($"\nReceived Activity:{ activity }");
             Console.WriteLine($"\nReceived Activity.TraceId:{ activity.TraceId }");
             Console.WriteLine($"\nReceived Activity.TraceStateString:{ activity.TraceStateString }");
+            Console.WriteLine($"\nReceived Activity.Current.Id:{ Activity.Current.Id }");
+            Console.WriteLine($"\nReceived Activity.Current.TraceStateString:{ Activity.Current.TraceStateString }");
             Console.WriteLine($"\nReceived Activity.SpanId:{ activity.SpanId }");
             Console.WriteLine($"\nReceived Activity.Baggage:{ activity.Baggage }");
             Console.WriteLine($"\nReceived Activity.Context:{ activity.Context }");
@@ -145,7 +153,10 @@ namespace ClientApp
             {
                 using (var request = new HttpRequestMessage(new HttpMethod("POST"), "https://new-shalimar.azure-devices.net/twins/new-nabeel-percept-device/modules/edgesolution/methods?api-version=2018-06-30"))
                 {
-                    request.Headers.TryAddWithoutValidation("Authorization", "SharedAccessSignature sr=new-shalimar.azure-devices.net&sig=ubHSFWY8dG9oDD0t%2FUPpQ4b8Rz3wcjrypOWThIeWi2A%3D&se=1637570626&skn=iothubowner");
+                    request.Headers.TryAddWithoutValidation("Authorization", "SharedAccessSignature sr=new-shalimar.azure-devices.net&sig=gOooIJOyxoyBYHIoYhuKumDFJcQheumdKMgs4f0tURw%3D&se=1644310936&skn=iothubowner");
+                    request.Headers.Add("ce-traceparent", $"{Activity.Current.Id}");
+                    request.Headers.Add("traceparent", $"{Activity.Current.Id}");
+                    request.Headers.Add("tracestate", $"rojo={Activity.Current.Id},congo={activity.Context.TraceId}");
 
                     request.Content = new StringContent("{\n    \"methodName\": \"reboot\",\n    \"responseTimeoutInSeconds\": 200,\n    \"payload\": {\n        \"input1\": \"someInput\",\n        \"input2\": \"anotherInput\"\n    }\n}");
                     request.Content.Headers.ContentType = MediaTypeHeaderValue.Parse("application/json");
@@ -157,5 +168,100 @@ namespace ClientApp
 
             
         }
+        private static async Task SendMessageToEdgeModuleUsingHTTPAsync(Activity activity)
+        {
+            // reference: https://docs.microsoft.com/en-us/azure/iot-hub/iot-hub-devguide-direct-methods
+            // Command to generate token
+            // az iot hub generate-sas-token -n [iot-hub-name] --du 1003600
+            Console.WriteLine($"\nReceived Activity:{ activity }");
+            Console.WriteLine($"\nReceived Activity.TraceId:{ activity.TraceId }");
+            Console.WriteLine($"\nReceived Activity.TraceStateString:{ activity.TraceStateString }");
+            Console.WriteLine($"\nReceived Activity.Current.Id:{ Activity.Current.Id }");
+            Console.WriteLine($"\nReceived Activity.Current.TraceStateString:{ Activity.Current.TraceStateString }");
+            Console.WriteLine($"\nReceived Activity.SpanId:{ activity.SpanId }");
+            Console.WriteLine($"\nReceived Activity.Baggage:{ activity.Baggage }");
+            Console.WriteLine($"\nReceived Activity.Context:{ activity.Context }");
+            Console.WriteLine($"\nReceived Activity.Context.SpanId:{ activity.Context.SpanId }");
+            Console.WriteLine($"\nReceived Activity.Context.TraceId:{ activity.Context.TraceId }");
+
+            using (var httpClient = new HttpClient())
+            {
+                using (var request = new HttpRequestMessage(new HttpMethod("POST"), "https://new-shalimar.azure-devices.net/twins/new-nabeel-percept-device/modules/edgesolution/methods?api-version=2018-06-30"))
+                {
+                    request.Headers.TryAddWithoutValidation("Authorization", "SharedAccessSignature sr=new-shalimar.azure-devices.net&sig=gOooIJOyxoyBYHIoYhuKumDFJcQheumdKMgs4f0tURw%3D&se=1644310936&skn=iothubowner");
+                    request.Headers.Add("ce-traceparent", $"{Activity.Current.Id}");
+                    request.Headers.Add("traceparent", $"{Activity.Current.Id}");
+                    request.Headers.Add("tracestate", $"rojo={Activity.Current.Id},congo={activity.Context.TraceId}");
+
+                    request.Content = new StringContent("{\n    \"methodName\": \"reboot\",\n    \"responseTimeoutInSeconds\": 200,\n    \"payload\": {\n        \"input1\": \"someInput\",\n        \"input2\": \"anotherInput\"\n    }\n}");
+                    request.Content.Headers.ContentType = MediaTypeHeaderValue.Parse("application/json");
+                    propagator.Inject(new PropagationContext(activity.Context, Baggage.Current), request, HttpRequestMessageHeaderValueSetter);
+                    var httpResponseMessage = await httpClient.SendAsync(request);
+                    Console.WriteLine($"\nResponse status: {httpResponseMessage.StatusCode}, payload:\n\t{httpResponseMessage.Content}");
+                }
+            }
+
+
+        }
+
+
+        private static async Task InvokeMethodUsingSDK(Activity activity)
+        {
+            Console.WriteLine($"\nSending message using SDK");
+            Console.WriteLine($"\nReceived Activity:{ activity }");
+            Console.WriteLine($"\nReceived Activity.TraceId:{ activity.TraceId }");
+            Console.WriteLine($"\nReceived Activity.TraceStateString:{ activity.TraceStateString }");
+            Console.WriteLine($"\nReceived Activity.Current.Id:{ Activity.Current.Id }");
+            Console.WriteLine($"\nReceived Activity.Current.TraceStateString:{ Activity.Current.TraceStateString }");
+            Console.WriteLine($"\nReceived Activity.SpanId:{ activity.SpanId }");
+            Console.WriteLine($"\nReceived Activity.Baggage:{ activity.Baggage }");
+            Console.WriteLine($"\nReceived Activity.Context:{ activity.Context }");
+            Console.WriteLine($"\nReceived Activity.Context.SpanId:{ activity.Context.SpanId }");
+            Console.WriteLine($"\nReceived Activity.Context.TraceId:{ activity.Context.TraceId }");
+
+            ServiceClient serviceClientA;
+            string connectionString = "HostName=new-shalimar.azure-devices.net;SharedAccessKeyName=iothubowner;SharedAccessKey=4AgmZ3Cf/2M6RvC9LXcqyNICt140KQd9SVYi89o8tjI=";
+            string targetDevice = "new-nabeel-percept-device";
+            string moduleId = "edgesolution";
+            serviceClientA = ServiceClient.CreateFromConnectionString(connectionString);
+            var commandMessage = new Message(Encoding.ASCII.GetBytes("Cloud to device module message."));
+            await serviceClientA.SendAsync(targetDevice, moduleId, commandMessage);
+            //SendCloudToDeviceMessageAsync(targetDevice).Wait();
+        }
+
+        private static async Task InvokeDeviceMethodUsingSDK(Activity activity)
+        {
+            Console.WriteLine($"\nSending message using SDK");
+            Console.WriteLine($"\nReceived Activity:{ activity }");
+            Console.WriteLine($"\nReceived Activity.TraceId:{ activity.TraceId }");
+            Console.WriteLine($"\nReceived Activity.TraceStateString:{ activity.TraceStateString }");
+            Console.WriteLine($"\nReceived Activity.Current.Id:{ Activity.Current.Id }");
+            Console.WriteLine($"\nReceived Activity.Current.TraceStateString:{ Activity.Current.TraceStateString }");
+            Console.WriteLine($"\nReceived Activity.SpanId:{ activity.SpanId }");
+            Console.WriteLine($"\nReceived Activity.Baggage:{ activity.Baggage }");
+            Console.WriteLine($"\nReceived Activity.Context:{ activity.Context }");
+            Console.WriteLine($"\nReceived Activity.Context.SpanId:{ activity.Context.SpanId }");
+            Console.WriteLine($"\nReceived Activity.Context.TraceId:{ activity.Context.TraceId }");
+
+            ServiceClient serviceClientA;
+            string connectionString = "HostName=new-shalimar.azure-devices.net;SharedAccessKeyName=iothubowner;SharedAccessKey=4AgmZ3Cf/2M6RvC9LXcqyNICt140KQd9SVYi89o8tjI=";
+            string targetDevice = "new-nabeel-percept-device";
+            string moduleId = "edgesolution";
+            serviceClientA = ServiceClient.CreateFromConnectionString(connectionString);
+            var methodInvocation = new CloudToDeviceMethod("SetTelemetryInterval")
+            {
+                ResponseTimeout = TimeSpan.FromSeconds(30),
+            };
+            methodInvocation.SetPayloadJson("10");
+            await serviceClientA.InvokeDeviceMethodAsync(targetDevice, moduleId, methodInvocation);
+            //SendCloudToDeviceMessageAsync(targetDevice).Wait();
+        }
+
+        //private async static Task SendCloudToDeviceMessageAsync(string targetDevice)
+        //{
+        //    var commandMessage = new
+        //     Message(Encoding.ASCII.GetBytes("Cloud to device message."));
+        //    await serviceClient.SendAsync(targetDevice, commandMessage);
+        //}
     }
 }
